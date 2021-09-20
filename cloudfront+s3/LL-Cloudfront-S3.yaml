@@ -1,0 +1,131 @@
+AWSTemplateFormatVersion: '2010-09-09'
+Description: 'Static website hosting with S3 and CloudFront'
+
+Parameters:
+
+    BucketName:
+      Type: String
+      Description: The name of the S3 Bucket to create
+      Default: buildingblocks-testing-cloudfront
+    Versioning:
+      Description: Enables/Disables multiple versions of all objects in this bucket.
+      Default: Suspended
+      Type: String
+      AllowedValues: [Enabled, Suspended]
+    # CustomDomain:
+    #   Description: Domain name that needs to be poitned to the Cloudfront
+    #   Type: String
+    #   Default: anee-test-cdn.com
+    Environment:
+      Type: String
+      Default: dev
+      Description: "e.g. dev or prod"
+
+
+
+Resources: 
+    S3Bucket:
+      Type: AWS::S3::Bucket
+      Properties:
+        BucketName: !Ref BucketName
+        VersioningConfiguration:
+          Status: !Ref Versioning
+        WebsiteConfiguration:
+          ErrorDocument: 'index.html'
+          IndexDocument: 'index.html'
+  
+  # Configure the bucket as a CloudFront Origin
+    ReadPolicy:
+      Type: 'AWS::S3::BucketPolicy'
+      Properties:
+        Bucket: !Ref S3Bucket
+        PolicyDocument:
+          Statement:
+            - Action: 's3:GetObject'
+              Effect: Allow
+              Resource: !Sub 'arn:aws:s3:::${S3Bucket}/*'
+              Principal: '*'
+  
+  # Configure Access to CloudFroun
+
+    CloudFrontOriginAccessIdentity:
+      Type: 'AWS::CloudFront::CloudFrontOriginAccessIdentity'
+      Properties:
+        CloudFrontOriginAccessIdentityConfig:
+          Comment: !Ref S3Bucket
+
+  # Configure CloudFront
+    CloudFrontDistribution:
+      Type: 'AWS::CloudFront::Distribution'
+      Properties:
+        DistributionConfig:
+          CustomErrorResponses:
+            - ErrorCode: 403 
+              ResponseCode: 404
+              ResponsePagePath: '/index.html'
+#          Aliases:
+#              - buildingblocksbeta.learnlaunch.org
+#              - www.buildingblocksbeta.learnlaunch.org
+          DefaultCacheBehavior:
+            AllowedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            CachedMethods:
+              - GET
+              - HEAD
+              - OPTIONS
+            Compress: true
+            DefaultTTL: 3600 
+            ForwardedValues:
+              Cookies:
+                Forward: none
+              QueryString: false
+            MaxTTL: 86400 
+            MinTTL: 60 
+            TargetOriginId: s3origin
+            ViewerProtocolPolicy: "redirect-to-https"
+            
+            
+      # DefaultRootObject configuration 
+          Comment: !Join ['-', [buildingblocks, !Ref Environment, 'CDN']]
+          DefaultRootObject: 'index.html'
+          Enabled: true
+          Origins:
+            - DomainName: !GetAtt 'S3Bucket.DomainName'
+              Id: s3origin
+              S3OriginConfig:
+                OriginAccessIdentity: !Sub 'origin-access-identity/cloudfront/${CloudFrontOriginAccessIdentity}'
+              OriginPath: '/build'  
+          PriceClass: 'PriceClass_All'
+#         ViewerCertificate:
+#                AcmCertificateArn: arn:aws:acm:us-east-1:683892234852:certificate/e679ea4a-fe9c-438c-ac5e-778dda8c82af
+#                SslSupportMethod: sni-only
+#                MinimumProtocolVersion: TLSv1
+          
+      # #Alias Domain Names
+      #     Aliases: 
+      #        - !Ref CustomDomain
+
+
+Outputs:
+  Bucket:
+    Description: 'S3 Bucket Name'
+    Value: !Ref S3Bucket
+    Export:
+      Name: !Sub '${AWS::StackName}-S3Bucket'
+  BucketUrl:
+    Description: 'S3 Bucket Url'
+    Value: !GetAtt 'S3Bucket.WebsiteURL'
+  
+  DistributionId:
+    Description: 'CloudFront Distribution ID'
+    Value: !Ref CloudFrontDistribution
+    Export:
+      Name: !Sub '${AWS::StackName}-CDNdistributionID'
+
+  Domain:
+    Description: 'Cloudfront Domain'
+    Value: !GetAtt CloudFrontDistribution.DomainName
+    Export:
+      Name: !Sub '${AWS::StackName}-CDNdistribution'
